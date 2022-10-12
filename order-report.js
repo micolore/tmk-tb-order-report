@@ -9,7 +9,7 @@
 // @grant        none
 // @license      MIT
 // ==/UserScript==
-function addButton(element, onclickFunc, value = "按钮", width = "40px", height = "40px") {
+function addButton(element, onclickFunc, color, value = "按钮", width = "40px", height = "40px",) {
     const button = document.createElement("input");
     button.type = "button";
     button.value = value;
@@ -17,9 +17,9 @@ function addButton(element, onclickFunc, value = "按钮", width = "40px", heigh
     button.style.width = width;
     button.style.align = "center";
     button.style.marginBottom = "10px";
-    button.style.marginLeft = "250px";
+    button.style.marginLeft = "50px";
     button.style.color = "white";
-    button.style.background = "#409EFF";
+    button.style.background = color;
     button.style.border = "1px solid #409EFF";
 
     button.onclick = function () {
@@ -31,29 +31,23 @@ function addButton(element, onclickFunc, value = "按钮", width = "40px", heigh
 }
 
 const orderListPage = /(http|https):\/\/buyertrade\.taobao.*?\/trade/g;
-const orderTime ="2022-10-12"
+const buttonWidth = "80px"
 if (orderListPage.exec(document.URL)) {
     const orderListMain = document.getElementById("J_bought_main");
-    addButton(orderListMain, addCurrentPageOrdersToList, "添加订单", "60px");
-    addButton(orderListMain, addCurrentPageOrdersToList, "清除订单", "60px");
-    addButton(orderListMain, exportOrders, "导出订单", "60px");
-    addButton(orderListMain, addOrdersToReportListV2, "定时导出订单", "80px");
-}
-
-// setTimeout
-let sleep = function (fun, time) {
-    setTimeout(() => {
-        fun();
-    }, time);
+    addButton(orderListMain, addCurrentPageOrdersToList, "#0000FF", "添加当页订单", buttonWidth,);
+    addButton(orderListMain, addOrdersToReportListV2, "#8A2BE2", "添加昨日订单", buttonWidth);
+    addButton(orderListMain, cleanOrderList, "#00FF00", "清除订单", buttonWidth);
+    addButton(orderListMain, exportOrders, "#FF0000", "导出订单", buttonWidth);
 }
 
 let flag = true
-// 添加订单到导出列表
+let yesterday = getYesterday()
+// 添加昨日订单到导出列表
 function addOrdersToReportListV2() {
 
     // 1、循环所有的页面订单，小于指定日期直接进行返回
     // 2、先获取当前页面的，有下一页就获取下一页，直到没有下一页。
-    get_next_page_order()
+    get_next_page_order(yesterday)
 
     while (flag) {
         document.getElementsByClassName("pagination-next")[0].click();
@@ -63,14 +57,14 @@ function addOrdersToReportListV2() {
     console.info("添加订单成功!")
 }
 // 跳转到下一页(需要递归)
-function get_next_page_order() {
+function get_next_page_order(time) {
 
     const orders = document.getElementsByClassName("js-order-container");
     if (orders == null || orders == undefined) {
         return
     }
     for (let order of orders) {
-        let items = processOrder(order);
+        let items = processOrder(order, yesterday);
         if (!items) {
             continue;
         }
@@ -78,7 +72,7 @@ function get_next_page_order() {
             orderList[key] = value;
         })
     }
-    console.info(orderList)
+    console.info("添加了: (" + Object.keys(orderList).length + ") 条订单")
 }
 
 // 导出csv
@@ -99,20 +93,23 @@ function toCsv(header, data, filename) {
     document.body.appendChild(url);
     url.click();
 }
-
+// 清空
+function cleanOrderList() {
+    let count = Object.keys(orderList).length
+    orderList = {}
+    console.info("清除订单成功!")
+    console.info("清除了: (" + count + ") 条订单")
+}
 let orderList = {}
 // 添加当前页面的订单到导出列表
 function addCurrentPageOrdersToList() {
     const orders = document.getElementsByClassName("js-order-container");
 
     for (let order of orders) {
-
-        let items = processOrder(order);
-
+        let items = processOrder(order, null);
         if (!items) {
             continue;
         }
-
         _.forEach(items, (value, key) => {
             orderList[key] = value;
         })
@@ -121,14 +118,12 @@ function addCurrentPageOrdersToList() {
 }
 
 function exportOrders() {
-
     const header = ["订单号", "下单日期", "商品明细", "商品链接", "单价", "数量", "实付款", "状态"];
-
     toCsv(header, orderList, "淘宝订单导出")
 }
 
-
-function processOrder(order) {
+// 处理订单-获取订单的详细信息
+function processOrder(order, time) {
 
     let outputData = {};
     let textContent = order.textContent;
@@ -140,20 +135,21 @@ function processOrder(order) {
         console.log('暂未发现订单！');
     } else {
         const date = isExist[1];
-        console.info("订单时间:" + date)
-
         const id = order.querySelector("div[data-id]").getAttribute("data-id");
-
         let index = 0;
 
-        if (date != orderTime) {
-            return;
+        if (time != undefined) {
+            if (time != null) {
+                if (date != time) {
+                    if (date < time) {
+                        flag = false
+                        return
+                    }
+                    return
+                }
+            }
         }
-        if (date < orderTime) {
-            console.info("time is end!")
-            flag = false
-            return
-        }
+
         let productQuery = order.querySelector("span[data-reactid='.0.7:$order-" + id + ".$" + id + ".0.1:1:0.$" + index + ".$0.0.1.0.0.1']");
         let priceQuery = order.querySelector("span[data-reactid='.0.7:$order-" + id + ".$" + id + ".0.1:1:0.$" + index + ".$1.0.1.1']");
         let countQuery = order.querySelector("p[data-reactid='.0.7:$order-" + id + ".$" + id + ".0.1:1:0.$" + index + ".$2.0.0']");
@@ -177,12 +173,11 @@ function processOrder(order) {
         } else {
             count = 1;
         }
-
+        let orderStatus = ""
         if (index === 0) {
             let statusQuery = order.querySelector("span[data-reactid='.0.7:$order-" + id + ".$" + id + ".0.1:1:0.$" + index + ".$5.0.0.0']");
             // 订单状态
-            let orderStatus = statusQuery.textContent;
-            console.info(orderStatus)
+            orderStatus = statusQuery.textContent;
         }
 
         let itemUrl = itemUrlQuery.href
@@ -197,8 +192,38 @@ function processOrder(order) {
             parseFloat(price),
             count,
             actualPay,
-            status,
+            orderStatus,
         ]
     }
     return outputData;
+}
+
+// 格式化时间
+function formatDate(date) {
+    const year = date.getFullYear()
+    let month = date.getMonth() + 1
+    let day = date.getDate()
+    if (month < 10) {
+        month = `0${month}`
+    }
+    if (day < 10) {
+        day = `0${day}`
+    }
+    return (`${year}-${month}-${day}`)
+}
+
+// 获取昨日订单
+function getYesterday() {
+    const date = new Date()
+    const year = date.getFullYear()
+    const month = date.getMonth()
+    const day = date.getDate()
+    return formatDate(new Date(year, month, day - 1))
+}
+
+// setTimeout
+let sleep = function (fun, time) {
+    setTimeout(() => {
+        fun();
+    }, time);
 }
